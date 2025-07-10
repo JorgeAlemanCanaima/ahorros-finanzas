@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import { Bar, Line, Doughnut } from "react-chartjs-2";
 import {
@@ -17,6 +17,19 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Title, Tooltip, Legend);
 
+// Definir tipos para los movimientos
+interface Movimiento {
+  id: string;
+  tipo: 'ingreso' | 'egreso' | 'viatico';
+  descripcion: string;
+  monto: number;
+  categoria: string;
+  fecha: string;
+  metodo_pago?: string;
+  banco?: string;
+  creado_en?: string;
+}
+
 export default function Home() {
   // Estados para el formulario
   const [tipo, setTipo] = useState("");
@@ -30,8 +43,7 @@ export default function Home() {
   const [errorForm, setErrorForm] = useState("");
 
   // Estados para formulario, filtros, movimientos, saldo y loading
-  // Aquí se implementará la lógica en los siguientes pasos
-  const [movimientos, setMovimientos] = useState<any[]>([]);
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Estados para filtros
@@ -43,8 +55,36 @@ export default function Home() {
   const [metas, setMetas] = useState<{objetivo: number, actual: number, descripcion: string}>({objetivo: 0, actual: 0, descripcion: ""});
   const [mostrarPresupuestos, setMostrarPresupuestos] = useState(false);
   const [mostrarMetas, setMostrarMetas] = useState(false);
-  const [nuevaCategoria, setNuevaCategoria] = useState("");
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState({categoria: "", monto: ""});
+
+  // Estados para búsqueda y filtros avanzados
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroMontoMin, setFiltroMontoMin] = useState("");
+  const [filtroMontoMax, setFiltroMontoMax] = useState("");
+  const [filtroFechaInicio, setFiltroFechaInicio] = useState("");
+  const [filtroFechaFin, setFiltroFechaFin] = useState("");
+  const [mostrarFiltrosAvanzados, setMostrarFiltrosAvanzados] = useState(false);
+
+  // Estados para acciones rápidas
+  const [mostrarAccionesRapidas, setMostrarAccionesRapidas] = useState(false);
+  const montosComunes = [100, 500, 1000, 2000, 5000, 10000];
+
+  // Estados para recordatorios
+  const [recordatorios, setRecordatorios] = useState<Array<{
+    id: string;
+    titulo: string;
+    monto: number;
+    fecha: string;
+    categoria: string;
+    activo: boolean;
+  }>>([]);
+  const [mostrarRecordatorios, setMostrarRecordatorios] = useState(false);
+  const [nuevoRecordatorio, setNuevoRecordatorio] = useState({
+    titulo: "",
+    monto: "",
+    fecha: "",
+    categoria: ""
+  });
 
   // Categorías inteligentes con sugerencias
   const categoriasSugeridas: Record<string, string[]> = {
@@ -59,7 +99,7 @@ export default function Home() {
   };
 
   // Función para sugerir categoría basada en descripción
-  const sugerirCategoria = (descripcion: string): string => {
+  const sugerirCategoria = useCallback((descripcion: string): string => {
     const descLower = descripcion.toLowerCase();
     for (const [categoria, palabras] of Object.entries(categoriasSugeridas)) {
       if (palabras.some(palabra => descLower.includes(palabra))) {
@@ -67,7 +107,7 @@ export default function Home() {
       }
     }
     return "";
-  };
+  }, [categoriasSugeridas]);
 
   // Función para agregar presupuesto
   const agregarPresupuesto = () => {
@@ -78,11 +118,6 @@ export default function Home() {
       }));
       setNuevoPresupuesto({categoria: "", monto: ""});
     }
-  };
-
-  // Función para actualizar meta
-  const actualizarMeta = () => {
-    setMetas(prev => ({...prev, actual: saldoTotal}));
   };
 
   // Calcular progreso de presupuestos
@@ -97,13 +132,32 @@ export default function Home() {
   // Calcular progreso de meta
   const progresoMeta = metas.objetivo > 0 ? (metas.actual / metas.objetivo) * 100 : 0;
 
-  // Filtrar movimientos según los filtros
+  // Filtrar movimientos con búsqueda avanzada
   const movimientosFiltrados = movimientos.filter((m) => {
+    // Filtro por tipo
     const coincideTipo = filtroTipo ? m.tipo === filtroTipo : true;
+    
+    // Filtro por mes
     const coincideMes = filtroMes
       ? m.fecha && m.fecha.startsWith(filtroMes)
       : true;
-    return coincideTipo && coincideMes;
+    
+    // Filtro por búsqueda en descripción
+    const coincideBusqueda = busqueda 
+      ? m.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
+        m.categoria.toLowerCase().includes(busqueda.toLowerCase())
+      : true;
+    
+    // Filtro por rango de montos
+    const monto = Number(m.monto);
+    const coincideMontoMin = filtroMontoMin ? monto >= Number(filtroMontoMin) : true;
+    const coincideMontoMax = filtroMontoMax ? monto <= Number(filtroMontoMax) : true;
+    
+    // Filtro por rango de fechas
+    const coincideFechaInicio = filtroFechaInicio ? m.fecha >= filtroFechaInicio : true;
+    const coincideFechaFin = filtroFechaFin ? m.fecha <= filtroFechaFin : true;
+    
+    return coincideTipo && coincideMes && coincideBusqueda && coincideMontoMin && coincideMontoMax && coincideFechaInicio && coincideFechaFin;
   });
 
   // Calcular saldo total
@@ -111,6 +165,11 @@ export default function Home() {
     if (m.tipo === "ingreso" || m.tipo === "viatico") return acc + Number(m.monto);
     else return acc - Number(m.monto);
   }, 0);
+
+  // Función para actualizar meta
+  const actualizarMeta = useCallback(() => {
+    setMetas(prev => ({...prev, actual: saldoTotal}));
+  }, [saldoTotal]);
 
   // Conversión a dólares (ejemplo: 1 USD = 36.5 C$)
   const tasaDolar = 36.5;
@@ -284,6 +343,38 @@ export default function Home() {
     setLoading(false);
   };
 
+  // Función para agregar recordatorio
+  const agregarRecordatorio = () => {
+    if (nuevoRecordatorio.titulo && nuevoRecordatorio.monto && nuevoRecordatorio.fecha) {
+      const recordatorio = {
+        id: Date.now().toString(),
+        titulo: nuevoRecordatorio.titulo,
+        monto: Number(nuevoRecordatorio.monto),
+        fecha: nuevoRecordatorio.fecha,
+        categoria: nuevoRecordatorio.categoria,
+        activo: true
+      };
+      setRecordatorios(prev => [...prev, recordatorio]);
+      setNuevoRecordatorio({titulo: "", monto: "", fecha: "", categoria: ""});
+    }
+  };
+
+  // Función para usar monto común
+  const usarMontoComun = (monto: number) => {
+    setMonto(monto.toString());
+  };
+
+  // Función para limpiar filtros
+  const limpiarFiltros = () => {
+    setBusqueda("");
+    setFiltroTipo("");
+    setFiltroMes("");
+    setFiltroMontoMin("");
+    setFiltroMontoMax("");
+    setFiltroFechaInicio("");
+    setFiltroFechaFin("");
+  };
+
   // Auto-sugerir categoría cuando cambie la descripción
   useEffect(() => {
     if (descripcion && !categoria) {
@@ -292,12 +383,12 @@ export default function Home() {
         setCategoria(sugerencia);
       }
     }
-  }, [descripcion, categoria]);
+  }, [descripcion, categoria, sugerirCategoria]);
 
   // Actualizar meta automáticamente
   useEffect(() => {
     actualizarMeta();
-  }, [saldoTotal]);
+  }, [saldoTotal, actualizarMeta]);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-2 sm:p-4 flex flex-col gap-4 sm:gap-6 max-w-4xl mx-auto">
@@ -350,16 +441,241 @@ export default function Home() {
           </button>
         </form>
       </section>
-      
-      {/* Filtros */}
-      <section className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-        <select className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
-          <option value="">🔍 Todos los tipos</option>
-          <option value="ingreso">💰 Ingreso</option>
-          <option value="egreso">💸 Egreso</option>
-          <option value="viatico">🚗 Viático</option>
-        </select>
-        <input className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} />
+
+      {/* Búsqueda y Filtros Avanzados */}
+      <section className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col gap-3">
+          {/* Barra de búsqueda */}
+          <div className="flex gap-2">
+            <input 
+              className="flex-1 p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
+              placeholder="🔍 Buscar por descripción o categoría..." 
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+            />
+            <button 
+              onClick={() => setMostrarFiltrosAvanzados(!mostrarFiltrosAvanzados)}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm transition"
+            >
+              {mostrarFiltrosAvanzados ? "✕" : "⚙️"}
+            </button>
+            <button 
+              onClick={limpiarFiltros}
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm transition"
+            >
+              🗑️ Limpiar
+            </button>
+          </div>
+
+          {/* Filtros básicos */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="">🔍 Todos los tipos</option>
+              <option value="ingreso">💰 Ingreso</option>
+              <option value="egreso">💸 Egreso</option>
+              <option value="viatico">🚗 Viático</option>
+            </select>
+            <input className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" type="month" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} />
+          </div>
+
+          {/* Filtros avanzados */}
+          {mostrarFiltrosAvanzados && (
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+              <h3 className="font-semibold mb-3 text-gray-700 dark:text-gray-200">Filtros Avanzados</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <input 
+                  className="p-2 rounded-lg border text-sm" 
+                  type="number" 
+                  placeholder="💰 Monto mínimo" 
+                  value={filtroMontoMin}
+                  onChange={e => setFiltroMontoMin(e.target.value)}
+                />
+                <input 
+                  className="p-2 rounded-lg border text-sm" 
+                  type="number" 
+                  placeholder="💰 Monto máximo" 
+                  value={filtroMontoMax}
+                  onChange={e => setFiltroMontoMax(e.target.value)}
+                />
+                <input 
+                  className="p-2 rounded-lg border text-sm" 
+                  type="date" 
+                  placeholder="📅 Desde" 
+                  value={filtroFechaInicio}
+                  onChange={e => setFiltroFechaInicio(e.target.value)}
+                />
+                <input 
+                  className="p-2 rounded-lg border text-sm" 
+                  type="date" 
+                  placeholder="📅 Hasta" 
+                  value={filtroFechaFin}
+                  onChange={e => setFiltroFechaFin(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Acciones Rápidas */}
+      <section className="bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-gray-700 dark:text-gray-200 text-lg flex items-center gap-2">
+            ⚡ Acciones Rápidas
+          </h2>
+          <button 
+            onClick={() => setMostrarAccionesRapidas(!mostrarAccionesRapidas)}
+            className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg text-sm transition"
+          >
+            {mostrarAccionesRapidas ? "✕ Cerrar" : "➕ Mostrar"}
+          </button>
+        </div>
+
+        {mostrarAccionesRapidas && (
+          <div className="space-y-4">
+            {/* Montos comunes */}
+            <div>
+              <h3 className="font-semibold mb-2 text-gray-700 dark:text-gray-200">💵 Montos Comunes</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {montosComunes.map((monto) => (
+                  <button
+                    key={monto}
+                    onClick={() => usarMontoComun(monto)}
+                    className="bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-800 dark:text-blue-300 p-2 rounded-lg text-sm font-medium transition"
+                  >
+                    C${monto.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Plantillas de movimientos frecuentes */}
+            <div>
+              <h3 className="font-semibold mb-2 text-gray-700 dark:text-gray-200">📋 Plantillas</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    setTipo("egreso");
+                    setDescripcion("Almuerzo");
+                    setCategoria("Comida");
+                    setMetodoPago("efectivo");
+                  }}
+                  className="bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-800 dark:text-green-300 p-3 rounded-lg text-sm transition text-left"
+                >
+                  🍽️ Almuerzo (Comida)
+                </button>
+                <button
+                  onClick={() => {
+                    setTipo("egreso");
+                    setDescripcion("Transporte");
+                    setCategoria("Transporte");
+                    setMetodoPago("efectivo");
+                  }}
+                  className="bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-800 dark:text-blue-300 p-3 rounded-lg text-sm transition text-left"
+                >
+                  🚗 Transporte
+                </button>
+                <button
+                  onClick={() => {
+                    setTipo("ingreso");
+                    setDescripcion("Salario");
+                    setCategoria("Trabajo");
+                    setMetodoPago("tarjeta");
+                  }}
+                  className="bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-800 dark:text-purple-300 p-3 rounded-lg text-sm transition text-left"
+                >
+                  💰 Salario (Trabajo)
+                </button>
+                <button
+                  onClick={() => {
+                    setTipo("egreso");
+                    setDescripcion("Servicios");
+                    setCategoria("Servicios");
+                    setMetodoPago("tarjeta");
+                  }}
+                  className="bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-800 dark:text-red-300 p-3 rounded-lg text-sm transition text-left"
+                >
+                  ⚡ Servicios
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Recordatorios */}
+      <section className="bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-gray-700 dark:text-gray-200 text-lg flex items-center gap-2">
+            ⏰ Recordatorios
+          </h2>
+          <button 
+            onClick={() => setMostrarRecordatorios(!mostrarRecordatorios)}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded-lg text-sm transition"
+          >
+            {mostrarRecordatorios ? "✕ Cerrar" : "➕ Agregar"}
+          </button>
+        </div>
+
+        {mostrarRecordatorios && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <input 
+                className="p-2 rounded-lg border text-sm" 
+                placeholder="📝 Título del recordatorio" 
+                value={nuevoRecordatorio.titulo}
+                onChange={e => setNuevoRecordatorio(prev => ({...prev, titulo: e.target.value}))}
+              />
+              <input 
+                className="p-2 rounded-lg border text-sm" 
+                type="number" 
+                placeholder="💵 Monto" 
+                value={nuevoRecordatorio.monto}
+                onChange={e => setNuevoRecordatorio(prev => ({...prev, monto: e.target.value}))}
+              />
+              <input 
+                className="p-2 rounded-lg border text-sm" 
+                type="date" 
+                placeholder="📅 Fecha" 
+                value={nuevoRecordatorio.fecha}
+                onChange={e => setNuevoRecordatorio(prev => ({...prev, fecha: e.target.value}))}
+              />
+              <input 
+                className="p-2 rounded-lg border text-sm" 
+                placeholder="🏷️ Categoría" 
+                value={nuevoRecordatorio.categoria}
+                onChange={e => setNuevoRecordatorio(prev => ({...prev, categoria: e.target.value}))}
+              />
+            </div>
+            <button 
+              onClick={agregarRecordatorio}
+              className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm transition mt-3"
+            >
+              ✅ Agregar Recordatorio
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {recordatorios.filter(r => r.activo).map((recordatorio) => (
+            <div key={recordatorio.id} className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="font-semibold text-yellow-800 dark:text-yellow-300">{recordatorio.titulo}</h3>
+                <button 
+                  onClick={() => setRecordatorios(prev => prev.map(r => r.id === recordatorio.id ? {...r, activo: false} : r))}
+                  className="text-yellow-600 hover:text-yellow-800 dark:text-yellow-400 dark:hover:text-yellow-200"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="text-sm text-yellow-700 dark:text-yellow-300">
+                <div>💵 C${recordatorio.monto.toFixed(2)}</div>
+                <div>📅 {recordatorio.fecha}</div>
+                <div>🏷️ {recordatorio.categoria}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
       
       {/* Saldo total */}
