@@ -38,6 +38,65 @@ export default function Home() {
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroMes, setFiltroMes] = useState("");
 
+  // Estados para presupuestos y metas
+  const [presupuestos, setPresupuestos] = useState<Record<string, number>>({});
+  const [metas, setMetas] = useState<{objetivo: number, actual: number, descripcion: string}>({objetivo: 0, actual: 0, descripcion: ""});
+  const [mostrarPresupuestos, setMostrarPresupuestos] = useState(false);
+  const [mostrarMetas, setMostrarMetas] = useState(false);
+  const [nuevaCategoria, setNuevaCategoria] = useState("");
+  const [nuevoPresupuesto, setNuevoPresupuesto] = useState({categoria: "", monto: ""});
+
+  // Categorías inteligentes con sugerencias
+  const categoriasSugeridas: Record<string, string[]> = {
+    "Comida": ["restaurante", "supermercado", "café", "almuerzo", "cena", "desayuno", "pizza", "hamburguesa"],
+    "Transporte": ["uber", "taxi", "gasolina", "bus", "metro", "parking", "estacionamiento"],
+    "Entretenimiento": ["cine", "película", "netflix", "spotify", "juego", "concierto", "teatro"],
+    "Salud": ["farmacia", "médico", "dentista", "gimnasio", "vitaminas", "consulta"],
+    "Educación": ["libro", "curso", "universidad", "taller", "seminario", "material"],
+    "Servicios": ["luz", "agua", "internet", "teléfono", "cable", "wifi"],
+    "Ropa": ["zapatos", "camisa", "pantalón", "vestido", "ropa", "accesorios"],
+    "Tecnología": ["celular", "laptop", "tablet", "cargador", "cable", "software"]
+  };
+
+  // Función para sugerir categoría basada en descripción
+  const sugerirCategoria = (descripcion: string): string => {
+    const descLower = descripcion.toLowerCase();
+    for (const [categoria, palabras] of Object.entries(categoriasSugeridas)) {
+      if (palabras.some(palabra => descLower.includes(palabra))) {
+        return categoria;
+      }
+    }
+    return "";
+  };
+
+  // Función para agregar presupuesto
+  const agregarPresupuesto = () => {
+    if (nuevoPresupuesto.categoria && nuevoPresupuesto.monto) {
+      setPresupuestos(prev => ({
+        ...prev,
+        [nuevoPresupuesto.categoria]: Number(nuevoPresupuesto.monto)
+      }));
+      setNuevoPresupuesto({categoria: "", monto: ""});
+    }
+  };
+
+  // Función para actualizar meta
+  const actualizarMeta = () => {
+    setMetas(prev => ({...prev, actual: saldoTotal}));
+  };
+
+  // Calcular progreso de presupuestos
+  const progresoPresupuestos = Object.entries(presupuestos).map(([cat, limite]) => {
+    const gastado = movimientosFiltrados
+      .filter(m => m.categoria === cat && m.tipo === 'egreso')
+      .reduce((acc, m) => acc + Number(m.monto), 0);
+    const porcentaje = (gastado / limite) * 100;
+    return { categoria: cat, gastado, limite, porcentaje, alerta: porcentaje > 90 };
+  });
+
+  // Calcular progreso de meta
+  const progresoMeta = metas.objetivo > 0 ? (metas.actual / metas.objetivo) * 100 : 0;
+
   // Filtrar movimientos según los filtros
   const movimientosFiltrados = movimientos.filter((m) => {
     const coincideTipo = filtroTipo ? m.tipo === filtroTipo : true;
@@ -225,6 +284,21 @@ export default function Home() {
     setLoading(false);
   };
 
+  // Auto-sugerir categoría cuando cambie la descripción
+  useEffect(() => {
+    if (descripcion && !categoria) {
+      const sugerencia = sugerirCategoria(descripcion);
+      if (sugerencia) {
+        setCategoria(sugerencia);
+      }
+    }
+  }, [descripcion, categoria]);
+
+  // Actualizar meta automáticamente
+  useEffect(() => {
+    actualizarMeta();
+  }, [saldoTotal]);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-2 sm:p-4 flex flex-col gap-4 sm:gap-6 max-w-4xl mx-auto">
       <div className="text-center mb-4">
@@ -317,6 +391,126 @@ export default function Home() {
           <div className="text-lg font-bold text-purple-600 dark:text-purple-400">{categoriaMayorGasto}</div>
           <div className="text-xs text-gray-600 dark:text-gray-300">Mayor Gasto</div>
         </div>
+      </section>
+
+      {/* Presupuestos */}
+      <section className="bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-gray-700 dark:text-gray-200 text-lg flex items-center gap-2">
+            🎯 Presupuestos por Categoría
+          </h2>
+          <button 
+            onClick={() => setMostrarPresupuestos(!mostrarPresupuestos)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg text-sm transition"
+          >
+            {mostrarPresupuestos ? "✕ Cerrar" : "➕ Agregar"}
+          </button>
+        </div>
+
+        {mostrarPresupuestos && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input 
+                className="flex-1 p-2 rounded-lg border text-sm" 
+                placeholder="🏷️ Categoría" 
+                value={nuevoPresupuesto.categoria}
+                onChange={e => setNuevoPresupuesto(prev => ({...prev, categoria: e.target.value}))}
+              />
+              <input 
+                className="flex-1 p-2 rounded-lg border text-sm" 
+                type="number" 
+                placeholder="💵 Límite mensual" 
+                value={nuevoPresupuesto.monto}
+                onChange={e => setNuevoPresupuesto(prev => ({...prev, monto: e.target.value}))}
+              />
+              <button 
+                onClick={agregarPresupuesto}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition"
+              >
+                ✅ Agregar
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {progresoPresupuestos.map((presupuesto) => (
+            <div key={presupuesto.categoria} className={`bg-white/60 dark:bg-gray-700/60 rounded-lg p-4 border-2 ${
+              presupuesto.alerta ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-gray-600'
+            }`}>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-semibold text-sm">{presupuesto.categoria}</span>
+                {presupuesto.alerta && <span className="text-red-500 text-xs">⚠️ Alerta</span>}
+              </div>
+              <div className="text-lg font-bold mb-2">
+                C${presupuesto.gastado.toFixed(2)} / C${presupuesto.limite.toFixed(2)}
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mb-2">
+                <div 
+                  className={`h-2 rounded-full transition-all ${
+                    presupuesto.alerta ? 'bg-red-500' : presupuesto.porcentaje > 70 ? 'bg-yellow-500' : 'bg-green-500'
+                  }`}
+                  style={{width: `${Math.min(presupuesto.porcentaje, 100)}%`}}
+                ></div>
+              </div>
+              <div className="text-xs text-gray-600 dark:text-gray-300">
+                {presupuesto.porcentaje.toFixed(1)}% usado
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Metas de Ahorro */}
+      <section className="bg-white/80 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-gray-700 dark:text-gray-200 text-lg flex items-center gap-2">
+            🎯 Meta de Ahorro
+          </h2>
+          <button 
+            onClick={() => setMostrarMetas(!mostrarMetas)}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-lg text-sm transition"
+          >
+            {mostrarMetas ? "✕ Cerrar" : "➕ Configurar"}
+          </button>
+        </div>
+
+        {mostrarMetas && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input 
+                className="flex-1 p-2 rounded-lg border text-sm" 
+                placeholder="🎯 Descripción de la meta" 
+                value={metas.descripcion}
+                onChange={e => setMetas(prev => ({...prev, descripcion: e.target.value}))}
+              />
+              <input 
+                className="flex-1 p-2 rounded-lg border text-sm" 
+                type="number" 
+                placeholder="💵 Objetivo de ahorro" 
+                value={metas.objetivo || ""}
+                onChange={e => setMetas(prev => ({...prev, objetivo: Number(e.target.value)}))}
+              />
+            </div>
+          </div>
+        )}
+
+        {metas.objetivo > 0 && (
+          <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg p-6 text-white text-center">
+            <div className="text-lg font-semibold mb-2">{metas.descripcion || "Meta de Ahorro"}</div>
+            <div className="text-3xl font-bold mb-2">C${metas.actual.toFixed(2)} / C${metas.objetivo.toFixed(2)}</div>
+            <div className="w-full bg-white/20 rounded-full h-3 mb-2">
+              <div 
+                className="bg-white h-3 rounded-full transition-all"
+                style={{width: `${Math.min(progresoMeta, 100)}%`}}
+              ></div>
+            </div>
+            <div className="text-sm">
+              {progresoMeta.toFixed(1)}% completado
+              {progresoMeta >= 100 && <span className="ml-2">🎉 ¡Meta alcanzada!</span>}
+            </div>
+          </div>
+        )}
       </section>
       
       {/* Gráficas de análisis */}
